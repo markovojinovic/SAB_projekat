@@ -125,37 +125,7 @@ public class vm190559_BuyerOperations implements BuyerOperations {
             creatingPs.execute();
             ResultSet creatingRs = creatingPs.getGeneratedKeys();
             if (creatingRs.next()) {
-                int key = creatingRs.getInt(1);
-
-                String discountQuery = "select Popust\n" +
-                        "from Porudzbina p join Sadrzi s on p.IdPor = s.IdPor join Artikal a on a.IdArt = s.IdArt " +
-                        "join Prodavnica pr on pr.IdProd = a.IdProd\n" +
-                        "where p.IdPor = ?";
-
-                try (PreparedStatement discountPs = connection.prepareStatement(discountQuery)) {
-
-                    discountPs.setInt(1, key);
-
-                    ResultSet discountRs = discountPs.executeQuery();
-                    BigDecimal discount = discountRs.getBigDecimal(1);
-                    if (creatingRs.next()) {
-
-                        String updateQuery = "update Porudzbina set KolicinaPopusta = ? where IdPor = ?";
-
-                        try (PreparedStatement updatePs = connection.prepareStatement(updateQuery)) {
-                            updatePs.setBigDecimal(1, discount);
-                            updatePs.setInt(2, key);
-
-                            updatePs.executeUpdate();
-
-                            return key;
-                        } catch (SQLException e) {
-                            e.printStackTrace();
-                        }
-                    }
-                } catch (SQLException e) {
-                    e.printStackTrace();
-                }
+                return creatingRs.getInt(1);
             }
         } catch (SQLException e) {
             e.printStackTrace();
