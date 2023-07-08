@@ -116,7 +116,7 @@ public class vm190559_BuyerOperations implements BuyerOperations {
 
         String creatingQuery = "insert into Porudzbina " +
                 "(Status, KolicinaPopusta, Cena, VremePrijema, VremeSlanja, Lokacija, PopustKupca, IdKup, IdPut) " +
-                "values(?, ?, ?, null, null, null, ?, ?, null)";
+                "values(?, ?, ?, null, null, -1, ?, ?, null)";
 
         try (PreparedStatement creatingPs = connection.prepareStatement(creatingQuery, PreparedStatement.RETURN_GENERATED_KEYS)) {
 
