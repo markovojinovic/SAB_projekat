@@ -1,10 +1,10 @@
 package rs.etf.sab.student;
 
 import rs.etf.sab.operations.*;
-import rs.etf.sab.tests.TestHandler;
-import rs.etf.sab.tests.TestRunner;
+//import rs.etf.sab.tests.TestHandler;
+//import rs.etf.sab.tests.TestRunner;
+import test.*;
 
-import java.util.Calendar;
 
 public class StudentMain {
 
