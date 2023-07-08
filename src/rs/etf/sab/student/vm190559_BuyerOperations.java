@@ -17,13 +17,14 @@ public class vm190559_BuyerOperations implements BuyerOperations {
     @Override
     public int createBuyer(String name, int cityId) {
 
-        String query = "insert into Artikal (Ime, Racun, IdGrad) values(?, ?, ?)";
+        String query = "insert into Artikal (Ime, Racun, KolicinaPrometa, IdGrad) values(?, ?, ?, ?)";
 
         try (PreparedStatement ps = connection.prepareStatement(query, PreparedStatement.RETURN_GENERATED_KEYS)) {
 
             ps.setString(1, name);
             ps.setInt(2, 0);
-            ps.setInt(3, cityId);
+            ps.setBigDecimal(3, new BigDecimal(0));
+            ps.setInt(4, cityId);
 
             ps.execute();
             ResultSet rs = ps.getGeneratedKeys();
