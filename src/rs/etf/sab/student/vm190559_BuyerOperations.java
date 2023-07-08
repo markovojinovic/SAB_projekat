@@ -17,7 +17,7 @@ public class vm190559_BuyerOperations implements BuyerOperations {
     @Override
     public int createBuyer(String name, int cityId) {
 
-        String query = "insert into Artikal (Ime, Racun, KolicinaPrometa, IdGrad) values(?, ?, ?, ?)";
+        String query = "insert into Kupac (Ime, Racun, PrometKupca, IdGrad) values(?, ?, ?, ?)";
 
         try (PreparedStatement ps = connection.prepareStatement(query, PreparedStatement.RETURN_GENERATED_KEYS)) {
 
@@ -116,12 +116,15 @@ public class vm190559_BuyerOperations implements BuyerOperations {
 
         String creatingQuery = "insert into Porudzbina " +
                 "(Status, KolicinaPopusta, Cena, VremePrijema, VremeSlanja, Lokacija, PopustKupca, IdKup, IdPut) " +
-                "values(\"created\", ?, null, null, null, null, null, ?, null)";
+                "values(?, ?, ?, null, null, null, ?, ?, null)";
 
         try (PreparedStatement creatingPs = connection.prepareStatement(creatingQuery, PreparedStatement.RETURN_GENERATED_KEYS)) {
 
-            creatingPs.setBigDecimal(1, new BigDecimal(0));
-            creatingPs.setInt(2, buyerId);
+            creatingPs.setString(1, "created");
+            creatingPs.setBigDecimal(2, new BigDecimal(0));
+            creatingPs.setBigDecimal(3, new BigDecimal(0));
+            creatingPs.setBigDecimal(4, new BigDecimal(0));
+            creatingPs.setInt(5, buyerId);
 
             creatingPs.execute();
             ResultSet creatingRs = creatingPs.getGeneratedKeys();
@@ -139,7 +142,7 @@ public class vm190559_BuyerOperations implements BuyerOperations {
     public List<Integer> getOrders(int buyerId) {
         List<Integer> ret = new ArrayList<>();
 
-        String query = "select IdPor from Porudzbine where IdKup = ?";
+        String query = "select IdPor from Porudzbina where IdKup = ?";
 
         try (PreparedStatement ps = connection.prepareStatement(query)) {
 
