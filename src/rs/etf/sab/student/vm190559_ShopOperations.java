@@ -25,11 +25,12 @@ public class vm190559_ShopOperations implements ShopOperations {
             ResultSet cityRs = cityPs.executeQuery();
             if (cityRs.next()) {
                 int cityId = cityRs.getInt(1);
-                String creatingQuery = "insert into Prodavnica (Ime, Popust, IdGrad) values (?, 0, ?)";
+                String creatingQuery = "insert into Prodavnica (Ime, Popust, Promet, IdGrad) values (?, 0, ?, ?)";
 
                 try (PreparedStatement createPs = connection.prepareStatement(creatingQuery, PreparedStatement.RETURN_GENERATED_KEYS)) {
                     createPs.setString(1, name);
-                    createPs.setInt(2, cityId);
+                    createPs.setBigDecimal(2, new BigDecimal(0));
+                    createPs.setInt(3, cityId);
                     createPs.execute();
 
                     ResultSet createRs = createPs.getGeneratedKeys();
