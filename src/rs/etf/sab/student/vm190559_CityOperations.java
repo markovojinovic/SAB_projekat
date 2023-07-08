@@ -88,7 +88,10 @@ public class vm190559_CityOperations implements CityOperations {
                             psInsert.execute();
                             ResultSet returnRs = psInsert.getGeneratedKeys();
 
-                            return returnRs.getInt(1);
+                            if (returnRs.next())
+                                return returnRs.getInt(1);
+                            else
+                                return -1;
 
                         } catch (SQLException e) {
                             e.printStackTrace();
@@ -109,8 +112,8 @@ public class vm190559_CityOperations implements CityOperations {
     public List<Integer> getConnectedCities(int cityId) {
         List<Integer> ret = new ArrayList<>();
 
-        String query = "select IdGrad1 from Saobracajnica where IdGrad2 = ? " +
-                "union select IdGrad2 from Saobracajnica where IdGrad1 = ?";
+        String query = "select Grad1 from Saobracajnica where Grad2 = ? " +
+                "union select Grad2 from Saobracajnica where Grad1 = ?";
 
         try (PreparedStatement ps = connection.prepareStatement(query)) {
 
@@ -134,7 +137,7 @@ public class vm190559_CityOperations implements CityOperations {
 
         List<Integer> ret = new ArrayList<>();
 
-        String query = "select IdProd from Prodavnice where IdGrad = ?";
+        String query = "select IdProd from Prodavnica where IdGrad = ?";
 
         try (PreparedStatement ps = connection.prepareStatement(query)) {
 
