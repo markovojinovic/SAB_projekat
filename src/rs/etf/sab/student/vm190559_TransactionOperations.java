@@ -60,7 +60,7 @@ public class vm190559_TransactionOperations implements TransactionOperations {
         List<Integer> ret = new ArrayList<>();
         String query = "select t.IdTrans\n" +
                 "from Transakcija t join Porudzbina p on t.IdPor = p.IdPor join Kupac k on p.IdKup = k.IdKup\n" +
-                "where k.IdKup = ?";
+                "where k.IdKup = ? and t.IdProd = null";
 
         try (PreparedStatement ps = connection.prepareStatement(query)) {
 
