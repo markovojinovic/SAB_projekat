@@ -20,14 +20,20 @@ public class vm190559_TransactionOperations implements TransactionOperations {
     @Override
     public BigDecimal getBuyerTransactionsAmmount(int buyerId) {
 
-        String query = "select PrometKupca from Kupac where IdKup = ?";
+        String query = "select Cena from Porudzbina where IdKup = ?";
+        BigDecimal ret = new BigDecimal(0);
+        ret = ret.setScale(3);
 
         try (PreparedStatement ps = connection.prepareStatement(query)) {
             ps.setInt(1, buyerId);
 
             ResultSet rs = ps.executeQuery();
-            if (rs.next())
-                return rs.getBigDecimal(1);
+            while (rs.next()) {
+                BigDecimal current = rs.getBigDecimal(1);
+                current = current.setScale(3);
+                ret = ret.add(current);
+                return ret;
+            }
 
         } catch (SQLException e) {
             e.printStackTrace();
@@ -60,7 +66,7 @@ public class vm190559_TransactionOperations implements TransactionOperations {
         List<Integer> ret = new ArrayList<>();
         String query = "select t.IdTrans\n" +
                 "from Transakcija t join Porudzbina p on t.IdPor = p.IdPor join Kupac k on p.IdKup = k.IdKup\n" +
-                "where k.IdKup = ? and t.IdProd = null";
+                "where k.IdKup = ?";
 
         try (PreparedStatement ps = connection.prepareStatement(query)) {
 
@@ -137,6 +143,9 @@ public class vm190559_TransactionOperations implements TransactionOperations {
                 ret.add(rs.getInt(1));
             }
 
+            if(ret.isEmpty())
+                return null;
+
             return ret;
 
         } catch (SQLException e) {
@@ -149,9 +158,7 @@ public class vm190559_TransactionOperations implements TransactionOperations {
     @Override
     public Calendar getTimeOfExecution(int transactionId) {
 
-        String query = "select p.VremePrijema\n" +
-                "from Transakcija t join Porudzbina p on t.IdPor = p.IdPor\n" +
-                "where t.IdTrans = ?";
+        String query = "select Vreme from Transakcija where IdTrans = ?";
 
         try (PreparedStatement ps = connection.prepareStatement(query)) {
 

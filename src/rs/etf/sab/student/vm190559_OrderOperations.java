@@ -3,10 +3,7 @@ package rs.etf.sab.student;
 import rs.etf.sab.operations.OrderOperations;
 
 import java.math.BigDecimal;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
+import java.sql.*;
 import java.util.*;
 
 import static rs.etf.sab.student.vm190559_GeneralOperations.calendarToTimestamp;
@@ -14,7 +11,7 @@ import static rs.etf.sab.student.vm190559_GeneralOperations.timestampToCalendar;
 
 public class vm190559_OrderOperations implements OrderOperations {
 
-    private static Connection connection = DB.getInstance().getConnection();
+    private static final Connection connection = DB.getInstance().getConnection();
 
     @Override
     public int addArticle(int orderId, int articleId, int count) {
@@ -23,12 +20,13 @@ public class vm190559_OrderOperations implements OrderOperations {
         int key = -1, price;
         BigDecimal discount;
 
-        try (PreparedStatement insertCheckPs = connection.prepareStatement(insertCheckQuery, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_UPDATABLE)) {
+        try (PreparedStatement insertCheckPs = connection.prepareStatement(insertCheckQuery,
+                ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_UPDATABLE)) {
             insertCheckPs.setInt(1, articleId);
             insertCheckPs.setInt(2, orderId);
 
             ResultSet insertCheckRs = insertCheckPs.executeQuery();
-            if (!insertCheckRs.next()) {        // nema takvog u tabeli Sadrzi
+            if (!insertCheckRs.next()) {
 
                 String insertQuery = "insert into Sadrzi (Placeno, IdArt, IdPor, Broj) values (0, ?, ?, ?)";
 
@@ -48,7 +46,7 @@ public class vm190559_OrderOperations implements OrderOperations {
                 } catch (SQLException e) {
                     e.printStackTrace();
                 }
-            } else {                            // ima takvog u tabeli Sadrzi
+            } else {
                 key = insertCheckRs.getInt(1);
                 int oldCnt = insertCheckRs.getInt("Broj");
 
@@ -62,11 +60,12 @@ public class vm190559_OrderOperations implements OrderOperations {
         String discountQuery = "select pr.Popust, a.Cena\n" +
                 "from Porudzbina p join Sadrzi s on p.IdPor = s.IdPor join Artikal a on a.IdArt = s.IdArt\n" +
                 "join Prodavnica pr on pr.IdProd = a.IdProd\n" +
-                "where p.IdPor = ?";
+                "where p.IdPor = ? and a.IdArt = ?";
 
         try (PreparedStatement discountPs = connection.prepareStatement(discountQuery)) {
 
-            discountPs.setInt(1, key);
+            discountPs.setInt(1, orderId);
+            discountPs.setInt(2, articleId);
 
             ResultSet discountRs = discountPs.executeQuery();
 
@@ -77,15 +76,16 @@ public class vm190559_OrderOperations implements OrderOperations {
 
                 String finalPriceQuery = "select Cena, KolicinaPopusta from Porudzbina where IdPor = ?";
 
-                try (PreparedStatement finalPricePs = connection.prepareStatement(finalPriceQuery, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_UPDATABLE)) {
+                try (PreparedStatement finalPricePs = connection.prepareStatement(finalPriceQuery,
+                        ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_UPDATABLE)) {
                     finalPricePs.setInt(1, orderId);
 
                     ResultSet finalPriceRs = finalPricePs.executeQuery();
                     if (finalPriceRs.next()) {
                         BigDecimal oldPrice = finalPriceRs.getBigDecimal(1);
                         BigDecimal oldDiscount = finalPriceRs.getBigDecimal(2);
-                        BigDecimal additionalPrice = new BigDecimal(price);
-                        BigDecimal additionalDiscount = new BigDecimal(price).multiply(discount);
+                        BigDecimal additionalPrice = new BigDecimal(price).multiply(new BigDecimal(count));
+                        BigDecimal additionalDiscount = new BigDecimal(price * count).multiply(new BigDecimal(1).subtract(discount));
 
                         finalPriceRs.updateBigDecimal(1, oldPrice.add(additionalPrice));
                         finalPriceRs.updateBigDecimal(2, oldDiscount.add(additionalDiscount));
@@ -146,7 +146,10 @@ public class vm190559_OrderOperations implements OrderOperations {
     }
 
     @Override
-    public int completeOrder(int orderId) {             // TODO: pozvati proceduru SP_FINAL_PRICE
+    public int completeOrder(int orderId) {
+        // triger kreira transkaciju, oduzima kupcu, prebacije prodavnici (prodavnicama), dodaje profit sistemu - racuna fee sistema
+
+        callProcedure(orderId);
 
         int ret = 1;
 
@@ -159,41 +162,69 @@ public class vm190559_OrderOperations implements OrderOperations {
             int shopLocation = getShopLocation(orderId);
             if (shopLocation == -1)
                 ret = -1;
-            setAtributes(orderId, shopLocation);
+            setAttributes(orderId, shopLocation);
 
-            Map<Integer, List<vm190559_Edge>> path = graphShortestPaths(graph, buyersLocation);
-            int distance = getDistance(path.get(shopLocation));
-            addNewPath(orderId, distance);
+            Map<Integer, List<vm190559_Edge>> path = graphShortestPaths(graph, shopLocation);
+            int newPathKey = addNewPath(orderId, path.get(buyersLocation).get(0).distance, false, path.get(buyersLocation).get(0).destCity);
+            if (newPathKey == -1)
+                ret = -1;
+
+            boolean first = true;
+            for (vm190559_Edge currentDistantShop : path.get(buyersLocation)) {
+                if (first) {
+                    first = false;
+                    continue;
+                }
+                newPathKey = chainPath(newPathKey, currentDistantShop.distance, false, currentDistantShop.destCity);
+                if (newPathKey == -1)
+                    ret = -1;
+            }
 
         } else {
-
             Map<Integer, List<vm190559_Edge>> path = graphShortestPaths(graph, buyersLocation);
 
             int forkShopLocation = findClosestShop(path);
             if (forkShopLocation == -1)
                 ret = -1;
-            int forkShopDistance = getDistance(path.get(forkShopLocation));
-            int newPathKey = addNewPath(orderId, forkShopDistance);
-            if (newPathKey == -1)
-                ret = -1;
-            setAtributes(orderId, forkShopLocation);
-
+            setAttributes(orderId, forkShopLocation);
             Map<Integer, List<vm190559_Edge>> forkPath = graphShortestPaths(graph, forkShopLocation);
             List<Integer> allOrderShops = getAllOrderShops(orderId, forkShopLocation);
             if (allOrderShops.isEmpty())
                 ret = -1;
 
+            int newPathKey = addNewPath(orderId, getDistance(forkPath.get(allOrderShops.get(0))), true, forkShopLocation);
+            if (newPathKey == -1)
+                ret = -1;
+
+            boolean first = true;
             for (int currentDistantShop : allOrderShops) {
+                if (first) {
+                    first = false;
+                    continue;
+                }
+
                 int distance = getDistance(forkPath.get(currentDistantShop));
 
-                newPathKey = chainPath(newPathKey, distance);
+                newPathKey = chainPath(newPathKey, distance, true, -1);
                 if (newPathKey == -1)
                     ret = -1;
             }
 
-            // kada se ceka porudzbina, ceka se najduza da se susretnu
+            Collections.reverse(path.get(forkShopLocation));
+            first = true;
+            for (vm190559_Edge currentDistantShop : path.get(forkShopLocation)) {
+                if (first) {
+                    first = false;
+                    continue;
+                }
+                newPathKey = chainPath(newPathKey, currentDistantShop.distance, false, currentDistantShop.destCity);
+                if (newPathKey == -1)
+                    ret = -1;
+            }
 
         }
+
+        createTransaction(orderId);
 
         return ret;
     }
@@ -201,14 +232,16 @@ public class vm190559_OrderOperations implements OrderOperations {
     @Override
     public BigDecimal getFinalPrice(int orderId) {
 
-        String query = "select Cena, KolicinaPopusta from Proudzbina where IdPor = ?";
+        String query = "select Cena from Porudzbina where IdPor = ?";
 
         try (PreparedStatement ps = connection.prepareStatement(query)) {
             ps.setInt(1, orderId);
 
             ResultSet rs = ps.executeQuery();
-            if (rs.next())
-                return rs.getBigDecimal(1).subtract(rs.getBigDecimal(2));
+            if (rs.next()) {
+                BigDecimal ret = rs.getBigDecimal(1);
+                return ret;
+            }
 
         } catch (SQLException e) {
             e.printStackTrace();
@@ -220,14 +253,17 @@ public class vm190559_OrderOperations implements OrderOperations {
     @Override
     public BigDecimal getDiscountSum(int orderId) {
 
-        String query = "select KolicinaPopusta from Proudzbina where IdPor = ?";
+        String query = "select KolicinaPopusta from Porudzbina where IdPor = ?";
 
         try (PreparedStatement ps = connection.prepareStatement(query)) {
             ps.setInt(1, orderId);
 
             ResultSet rs = ps.executeQuery();
-            if (rs.next())
-                return rs.getBigDecimal(1);
+            if (rs.next()) {
+                BigDecimal ret = rs.getBigDecimal(1);
+                ret = ret.setScale(3);
+                return ret;
+            }
 
         } catch (SQLException e) {
             e.printStackTrace();
@@ -276,7 +312,7 @@ public class vm190559_OrderOperations implements OrderOperations {
     @Override
     public Calendar getRecievedTime(int orderId) {
 
-        String query = "select VremePrijema from Poruzdbina where IdPor = ?";
+        String query = "select VremePrijema from Porudzbina where IdPor = ?";
 
         try (PreparedStatement ps = connection.prepareStatement(query)) {
             ps.setInt(1, orderId);
@@ -314,14 +350,16 @@ public class vm190559_OrderOperations implements OrderOperations {
     @Override
     public int getLocation(int orderId) {
 
-        String query = "select Lokacija from Poruzdbina where IdPor = ?";
+        String query = "select Lokacija from Porudzbina where IdPor = ?";
 
         try (PreparedStatement ps = connection.prepareStatement(query)) {
             ps.setInt(1, orderId);
 
             ResultSet rs = ps.executeQuery();
-            if (rs.next())
-                return rs.getInt(1);
+            if (rs.next()) {
+                int ret = rs.getInt(1);
+                return ret;
+            }
 
         } catch (SQLException e) {
             e.printStackTrace();
@@ -461,7 +499,7 @@ public class vm190559_OrderOperations implements OrderOperations {
         return false;
     }
 
-    private void setAtributes(int orderId, int location) {
+    private void setAttributes(int orderId, int location) {
         String setCompleteQuery = "update Porudzbina set Status = ?, VremeSlanja = ?, Lokacija = ? where IdPor = ?";
         vm190559_GeneralOperations generalOperations = new vm190559_GeneralOperations();
 
@@ -516,13 +554,19 @@ public class vm190559_OrderOperations implements OrderOperations {
         return -1;
     }
 
-    private int addNewPath(int orderId, int distance) {
-        String newPathQuery = "insert into Put (Dani, IdNextPut) values (?, -1)";
+    private int addNewPath(int orderId, int distance, boolean fork, int destCity) {
+        String newPathQuery = "insert into Put (Dani, Grad, IdNextPut, Fork) values (?, ?, -1, ?)";
         String orderUpdateQuery = "update Porudzbina set IdPut = ? where IdPor = ?";
         int retKey = -1;
 
         try (PreparedStatement ps = connection.prepareStatement(newPathQuery, PreparedStatement.RETURN_GENERATED_KEYS)) {
             ps.setInt(1, distance);
+            ps.setInt(2, destCity);
+            if (fork)
+                ps.setInt(3, 1);
+            else
+                ps.setInt(3, 0);
+
             ps.execute();
             ResultSet rs = ps.getGeneratedKeys();
 
@@ -544,13 +588,18 @@ public class vm190559_OrderOperations implements OrderOperations {
 
     }
 
-    private int chainPath(int newPathKey, int distance) {
-        String newPathQuery = "insert into Put (Dani, IdNextPut) values (?, -1)";
+    private int chainPath(int newPathKey, int distance, boolean fork, int destCity) {
+        String newPathQuery = "insert into Put (Dani, Grad, IdNextPut, Fork) values (?, ?, -1, ?)";
         String orderUpdateQuery = "update Put set IdNextPut = ? where IdPut = ?";
         int retKey = -1;
 
         try (PreparedStatement ps = connection.prepareStatement(newPathQuery, PreparedStatement.RETURN_GENERATED_KEYS)) {
             ps.setInt(1, distance);
+            ps.setInt(2, destCity);
+            if (fork)
+                ps.setInt(3, 1);
+            else
+                ps.setInt(3, 0);
             ps.execute();
             ResultSet rs = ps.getGeneratedKeys();
 
@@ -608,6 +657,70 @@ public class vm190559_OrderOperations implements OrderOperations {
         }
 
         return ret;
+    }
+
+    private void createTransaction(int orderId) {
+
+        String amountQuery = "Select Cena from Porudzbina where IdPor = ?";
+        BigDecimal amount = new BigDecimal(0);
+
+        try (PreparedStatement amountPs = connection.prepareStatement(amountQuery)) {
+            amountPs.setInt(1, orderId);
+
+            ResultSet amountRs = amountPs.executeQuery();
+            if (amountRs.next())
+                amount = amountRs.getBigDecimal(1);
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+
+        String insertQuery = "insert into Transakcija (Vreme, Kolicina, IdPor, IdProd) values (?, ?, ?, null)";
+        vm190559_GeneralOperations generalOperations = new vm190559_GeneralOperations();
+
+        try (PreparedStatement insertPs = connection.prepareStatement(insertQuery)) {
+            insertPs.setTimestamp(1, calendarToTimestamp(generalOperations.getCurrentTime()));
+            insertPs.setBigDecimal(2, amount);
+            insertPs.setInt(3, orderId);
+
+            insertPs.executeUpdate();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+
+    }
+
+    private void callProcedure(int orderId) {
+        String procedureCall = "{call SP_FINAL_PRICE(?, ?)}";
+
+        try (CallableStatement statement = connection.prepareCall(procedureCall)) {
+            statement.setInt(1, orderId);
+            statement.setBigDecimal(2, new BigDecimal(0));
+            statement.execute();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private int getDistance(int city1, int city2) {
+        String query = "select Udaljenost from Saobracajnica where Grad1 = ? and Grad2 = ?" +
+                "union select Udaljenost from Saobracajnica where Grad1 = ? and Grad2 = ?";
+
+        try (PreparedStatement ps = connection.prepareStatement(query)) {
+            ps.setInt(1, city1);
+            ps.setInt(2, city2);
+            ps.setInt(3, city2);
+            ps.setInt(4, city1);
+
+            ResultSet rs = ps.executeQuery();
+            if (rs.next())
+                return rs.getInt(1);
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+
+        return -1;
     }
 
     private static int getDistance(List<vm190559_Edge> path) {

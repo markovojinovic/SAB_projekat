@@ -82,20 +82,41 @@ public class vm190559_GeneralOperations implements GeneralOperations {
     }
 
     private boolean onePath(int orderId) {
-        String query = "select pu.IdNextPut\n" +
-                "from Porudzbina p join Put pu on p.IdPut = pu.IdPut\n" +
-                "where p.IdPor = ?";
+        String query = "select IdPut from Porudzbina where IdPor = ?";
 
         try (PreparedStatement ps = connection.prepareStatement(query)) {
             ps.setInt(1, orderId);
             ResultSet rs = ps.executeQuery();
 
             if (rs.next()) {
-                if (rs.getInt(1) == -1)
-                    return true;
-                else
-                    return false;
+                int currPath = rs.getInt(1);
+
+                while (true) {
+                    int next = getNextId(currPath);
+                    if (next == -1)
+                        break;
+                    if (isFork(next))
+                        return false;
+                    currPath = next;
+                }
             }
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+
+        return true;
+    }
+
+    private boolean isFork(int pathId) {
+        String query = "select Fork from Put where IdPut = ?";
+
+        try (PreparedStatement ps = connection.prepareStatement(query)) {
+            ps.setInt(1, pathId);
+            ResultSet rs = ps.executeQuery();
+
+            if (rs.next())
+                return rs.getInt(1) == 1;
 
         } catch (SQLException e) {
             e.printStackTrace();
@@ -105,22 +126,24 @@ public class vm190559_GeneralOperations implements GeneralOperations {
     }
 
     private void onePathTime(int orderId, int days) {
-        String query = "select pu.Dani, p.Status\n" +
-                "from Porudzbina p join Put pu on p.IdPut = pu.IdPut\n" +
-                "where p.IdPor = ?";
-        try (PreparedStatement ps = connection.prepareStatement(query, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_UPDATABLE)) {
+        String query = "select IdPut from Porudzbina where IdPor = ?";
+        try (PreparedStatement ps = connection.prepareStatement(query)) {
             ps.setInt(1, orderId);
             ResultSet rs = ps.executeQuery();
 
             if (rs.next()) {
-                int oldDays = rs.getInt(1);
-                int newDays = oldDays - days;
-                if (newDays <= 0) {
-                    newDays = 0;
-                    rs.updateString(2, "arrived");
+                int currPath = rs.getInt(1);
+
+                while (true) {
+                    int next = getNextId(currPath);
+                    if (!pathOver(currPath) || isFork(next))
+                        break;
+
+                    currPath = next;
                 }
-                rs.updateInt(1, newDays);
-                rs.updateRow();
+
+                decrease(currPath, days, orderId);
+
             }
 
         } catch (SQLException e) {
@@ -131,17 +154,36 @@ public class vm190559_GeneralOperations implements GeneralOperations {
 
     private int getForkId(int orderId) {
         String query = "select IdPut from Porudzbina where IdPor = ?";
+        String query2 = "select IdPut, Fork from Put where IdPut = ?";
+        int prev = -1;
+        int id = -1;
 
         try (PreparedStatement ps = connection.prepareStatement(query)) {
             ps.setInt(1, orderId);
             ResultSet rs = ps.executeQuery();
             if (rs.next())
-                return rs.getInt(1);
+                id = rs.getInt(1);
+
         } catch (SQLException e) {
             e.printStackTrace();
         }
 
-        return -1;
+        while (true) {
+            try (PreparedStatement ps = connection.prepareStatement(query2)) {
+                ps.setInt(1, id);
+                ResultSet rs = ps.executeQuery();
+                if (rs.next())
+                    if (rs.getInt(2) == 0)
+                        break;
+                    else
+                        prev = rs.getInt(1);
+
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+        }
+
+        return prev;
     }
 
     private int getNextId(int pathId) {
@@ -202,17 +244,19 @@ public class vm190559_GeneralOperations implements GeneralOperations {
 
     private boolean allArrived(int forkId) {
 
-        String query = "select Dani from Put where IdPut = ?";
-        boolean ret = true;
+        String query = "select Dani, Fork from Put where IdPut = ?";
         int nextId = getNextId(forkId);
 
         while (nextId != -1) {
             try (PreparedStatement ps = connection.prepareStatement(query)) {
                 ps.setInt(1, nextId);
                 ResultSet rs = ps.executeQuery();
-                if (rs.next())
-                    if (rs.getInt(1) != 0)
-                        ret = false;
+                if (rs.next()) {
+                    if (rs.getInt(2) == 1) {
+                        if (rs.getInt(1) != 0)
+                            return false;
+                    }
+                }
             } catch (SQLException e) {
                 e.printStackTrace();
             }
@@ -220,7 +264,24 @@ public class vm190559_GeneralOperations implements GeneralOperations {
             nextId = getNextId(nextId);
         }
 
-        return ret;
+        return true;
+    }
+
+    private boolean pathOver(int pathId) {
+        String query = "select Dani from Put where IdPut = ?";
+
+        try (PreparedStatement ps = connection.prepareStatement(query)) {
+            ps.setInt(1, pathId);
+            ResultSet rs = ps.executeQuery();
+            if (rs.next())
+                return rs.getInt(1) == 0;
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+
+
+        return false;
     }
 
     private void morePathTime(int orderId, int days) {
@@ -249,6 +310,43 @@ public class vm190559_GeneralOperations implements GeneralOperations {
             if (difference != -1) {
                 onePathTime(orderId, difference);
             }
+        }
+    }
+
+    private void decrease(int pathId, int days, int orderId) {
+        String query = "select Dani, Grad from Put where IdPut = ?";
+
+        try (PreparedStatement ps = connection.prepareStatement(query,
+                ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_UPDATABLE)) {
+            ps.setInt(1, pathId);
+            ResultSet rs = ps.executeQuery();
+
+            if (rs.next()) {
+                int oldDays = rs.getInt(1);
+                oldDays -= days;
+                if (oldDays < 0)
+                    oldDays = 0;
+                if (oldDays == 0) {
+                    updateLocation(orderId, rs.getInt(2));
+                }
+            }
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+
+    }
+
+    private void updateLocation(int orderId, int location) {
+        String query = "update Porudzbina set Lokacija = ? where IdPut = ?";
+
+        try (PreparedStatement ps = connection.prepareStatement(query)) {
+            ps.setInt(1, orderId);
+            ps.setInt(2, location);
+            ps.execute();
+
+        } catch (SQLException e) {
+            e.printStackTrace();
         }
     }
 
